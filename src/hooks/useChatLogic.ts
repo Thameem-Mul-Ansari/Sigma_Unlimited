@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Groq from "groq-sdk";
+// Assuming you created and exported UserData from useAuth.ts
+import { UserData } from './useAuth'; 
 
 // --- Type Definitions ---
 export interface Chat {
@@ -124,7 +126,7 @@ const groq = new Groq({
   dangerouslyAllowBrowser: true
 });
 
-// --- Core Helper Function: File Conversion ---
+// --- Core Helper Function: File Conversion (remains same) ---
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -140,7 +142,7 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
-// --- Date/Timestamp Helper ---
+// --- Date/Timestamp Helper (remains same) ---
 const getTimestampGroup = (dateString: string, translations: typeof LANGUAGES['en']['translations']): string => {
   const date = new Date(dateString);
   const now = new Date();
@@ -157,7 +159,7 @@ const getTimestampGroup = (dateString: string, translations: typeof LANGUAGES['e
   return translations.older;
 };
 
-// --- Initial State ---
+// --- Initial State (remains same) ---
 const initialLanguage = 'en';
 const initialTranslations = LANGUAGES[initialLanguage].translations;
 const initialChatId = 'temp-new-chat';
@@ -172,7 +174,8 @@ const createInitialChat = (translations: typeof initialTranslations, id: string)
 const initialChat: Chat = createInitialChat(initialTranslations, initialChatId);
 
 // --- Custom Hook ---
-export function useChatLogic(authToken: string | null) {
+// ⚠️ MODIFIED: Accepts userData
+export function useChatLogic(authToken: string | null, userData: UserData | null) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<'en' | 'ar'>(initialLanguage);
   const [chats, setChats] = useState<Chat[]>(() => {
@@ -222,6 +225,12 @@ export function useChatLogic(authToken: string | null) {
       return acc;
     }, {} as Record<string, Chat[]>);
   }, [chats, language]);
+
+  // ⭐️ ADDED: Utility function to get user initial
+  const getUserInitial = useCallback(() => {
+    if (!userData?.username) return 'U';
+    return userData.username.charAt(0).toUpperCase();
+  }, [userData]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -605,7 +614,7 @@ export function useChatLogic(authToken: string | null) {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ✅ UPDATED: Groq Whisper Integration
+  // ✅ UPDATED: Groq Whisper Integration (remains same)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -742,6 +751,7 @@ export function useChatLogic(authToken: string | null) {
     removeFile,
     startRecording,
     stopRecording,
+    getUserInitial, // ⭐️ EXPOSED: The new utility function
   };
 }
 
