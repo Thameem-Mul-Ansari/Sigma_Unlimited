@@ -14,7 +14,8 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, logic }) => {
-    const { t, copyToClipboard, handleFeedback, messages, regenerateResponse } = logic;
+    // ⚠️ MODIFIED: Destructure getUserInitial from logic
+    const { t, copyToClipboard, handleFeedback, messages, regenerateResponse, getUserInitial } = logic; 
 
     const messageIndex = messages.findIndex(m => m.id === message.id);
     const lastUserMessage = messages.slice(0, messageIndex).reverse().find(m => m.role === 'user');
@@ -40,7 +41,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isLast, logic })
                     <div className="flex items-center justify-end gap-2 mb-2">
                         <span className="text-xs font-semibold text-gray-500">{t.you}</span>
                         <div className="w-6 h-6 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-lg">
-                            A
+                            {/* 🔄 CHANGED: Use getUserInitial() */}
+                            {getUserInitial()} 
                         </div>
                     </div>
                     <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-3xl rounded-tr-md px-4 py-3 sm:px-6 sm:py-4 shadow-xl shadow-blue-600/20">
