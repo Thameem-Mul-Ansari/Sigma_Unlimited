@@ -30,9 +30,8 @@ function App() {
         // 👇 FIX: Pass the logout function as a prop to AdminPanel
         return <AdminPanel onLogout={logout} />; 
     }
-
-    // 3. If authenticated as a Regular User, proceed to the chat interface
-    const logic = useChatLogic(authState.authToken);
+    
+    const logic = useChatLogic(authState.authToken, authState.userData); 
 
     return (
         <div className="flex h-screen bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900">
