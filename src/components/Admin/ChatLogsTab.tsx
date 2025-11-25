@@ -58,7 +58,7 @@ interface Analytics {
 }
 
 const API_BASE = 'https://gx5cdmd5-8000.inc1.devtunnels.ms/api';
-const AUTH_TOKEN = 'Token 342071b5c385f67faa6e4b512a17c3a4134b4443';
+const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
 const COST_PER_TOKEN = 0.00002;
 
 const calculateDuration = (timestamp: string): string => {
@@ -1036,3 +1036,4 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
 };
 
 export default ChatLogsTab;
+
