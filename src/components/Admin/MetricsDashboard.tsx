@@ -31,7 +31,7 @@ interface DailyTokenUsage {
 }
 
 const API_BASE = 'https://gx5cdmd5-8000.inc1.devtunnels.ms/api';
-const AUTH_TOKEN = 'Token 342071b5c385f67faa6e4b512a17c3a4134b4443';
+const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
 
 const MetricCard: React.FC<SystemMetric> = ({ title, value, unit, color, icon: Icon }) => (
   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 group">
@@ -386,3 +386,4 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
     </div>
   );
 };
+
