@@ -48,20 +48,9 @@ interface ChatLogsTabProps {
   logic: AdminLogic;
 }
 
-interface Analytics {
-  totalSessions: number;
-  totalTokens: number;
-  avgTokensPerSession: number;
-  activeUsers: number;
-  totalQueries: number;
-  avgResponseTime: number;
-  avgConversationDuration: string; // e.g., "5m 32s"
-}
-
 const API_BASE = 'https://gx5cdmd5-8000.inc1.devtunnels.ms/api';
 const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
 const COST_PER_TOKEN = 0.00002;
-const PAGE_SIZE = 10;
 
 const calculateDuration = (timestamp: string): string => {
   const minutes = Math.floor(Math.random() * 14 + 1);
@@ -143,8 +132,6 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<EnrichedQueryLog | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
 
   // Column filters
   const [sessionFilter, setSessionFilter] = useState('');
@@ -238,76 +225,71 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
   });
 }, []);
 
-  const fetchChatHistory = useCallback(async (pageNum: number = 1, append: boolean = false) => {
-  if (!append) {
+  const fetchChatHistory = useCallback(async () => {
     setLoading(true);
-    setChatLogs([]);
-    setFilteredLogs([]);
-    setPage(1);
-    setHasMore(true);
-  }
+    setError(null);
 
-  try {
-    const response = await fetch(`${API_BASE}/history/all/?page=${pageNum}&page_size=${PAGE_SIZE}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': AUTH_TOKEN,
-        'Content-Type': 'application/json'
+    try {
+      const response = await fetch(`${API_BASE}/history/all/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': AUTH_TOKEN,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    });
 
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data: ConversationLog[] = await response.json();
+      
+      // Flatten and enrich the nested data
+  const flattenedLogs: EnrichedQueryLog[] = data.flatMap(conversation => {
+  const { id: conversation_id, user } = conversation;
 
-    const data: ConversationLog[] = await response.json();
+  return (conversation.query_logs || []).map((queryLog, index) => ({
+    ...queryLog,   // ← brings latency + all original fields
 
-    const flattenedLogs: EnrichedQueryLog[] = data.flatMap(conversation => {
-      const { id: conversation_id, user } = conversation;
-      return (conversation.query_logs || []).map((queryLog, index) => ({
-        ...queryLog,
-        id: `${conversation_id}-${queryLog.timestamp}-${index}`,
-        conversation_id,
-        user_id: user.id,
-        username: user.username,
-        tokens_used: queryLog.tokens_used,
-        tokens: queryLog.tokens_used,
-        duration: calculateDuration(queryLog.timestamp),
-        firstQuery: (queryLog.prompt || '').substring(0, 80) + ((queryLog.prompt || '').length > 80 ? '...' : ''),
-      }));
-    });
+    // ONLY add the fields that are NOT already in queryLog
+    id: `${conversation_id}-${queryLog.timestamp}-${index}`,
+    conversation_id,
+    user_id: user.id,
+    username: user.username,
+    tokens: queryLog.tokens_used,          // you want this alias
+    duration: 'N/A',                       // or real duration if you calculate it
+    firstQuery:
+      (queryLog.prompt || '').substring(0, 80) +
+      ((queryLog.prompt || '').length > 80 ? '...' : ''),
+  }));
+});
 
-    // Only update once using functional updates
-    setChatLogs(prev => {
-      const newLogs = append ? [...prev, ...flattenedLogs] : flattenedLogs;
-      calculateAnalytics(newLogs);
-      return newLogs;
-    });
+      setChatLogs(flattenedLogs);
+      setFilteredLogs(flattenedLogs);
+      calculateAnalytics(flattenedLogs);
 
-    setFilteredLogs(prev => {
-      return append ? [...prev, ...flattenedLogs] : flattenedLogs;
-    });
-
-    // Stop loading more when we get less than a full page
-    if (data.length < PAGE_SIZE) {
-      setHasMore(false);
+      // Reset ALL filters on refresh
+      setSearchTerm('');
+      setDateFilter('all');
+      setUserFilter('all');
+      setSessionFilter('');
+      setUserColumnFilter('');
+      setTimestampFilter('');
+      setDurationFilter('');
+      setTokenMinFilter('');
+      setTokenMaxFilter('');
+      setQueryFilter('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch chat history');
+      console.error('Error fetching chat history:', err);
+    } finally {
+      setLoading(false);
     }
+  }, [calculateAnalytics]);
 
-  } catch (err: any) {
-    setError(err.message || 'Failed to fetch chat history');
-    setHasMore(false);
-  } finally {
-    if (!append) setLoading(false);
-  }
-}, [calculateAnalytics]);
-
-useEffect(() => {
-  fetchChatHistory(1, false);
-}, []);
-
-useEffect(() => {
-  if (page > 1) {
-    fetchChatHistory(page, true);
-  }
-}, [page]);
+  useEffect(() => {
+    fetchChatHistory();
+  }, [fetchChatHistory]);
 
   // Filter logs based on search and all filters
   useEffect(() => {
@@ -443,7 +425,7 @@ useEffect(() => {
               <p className="text-sm text-gray-500 mt-1">Monitor chatbot usage and performance metrics</p>
             </div>
             <button 
-              onClick={() => fetchChatHistory(1, false)}
+              onClick={fetchChatHistory}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -840,43 +822,6 @@ useEffect(() => {
                     ))}
                   </tbody>
                 </table>
-                <div className="py-8">
-  {loading && page > 1 && (
-    <div className="text-center">
-      <RefreshCw className="mx-auto text-blue-500 animate-spin" size={32} />
-      <p className="text-gray-500 mt-2">Loading more logs...</p>
-    </div>
-  )}
-
-  {!hasMore && filteredLogs.length > 0 && (
-    <p className="text-center text-gray-500 text-sm">No more logs to load</p>
-  )}
-
- {/* Infinite Scroll Trigger */}
-<div
-  ref={(node) => {
-    if (!node) return;
-
-    // Cleanup previous observer if exists
-    if ((node as any)._observer) {
-      (node as any)._observer.disconnect();
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && hasMore && !loading) {
-          setPage(prev => prev + 1);
-        }
-      },
-      { threshold: 0.1, rootMargin: '200px' }
-    );
-
-    observer.observe(node);
-    (node as any)._observer = observer; // store for cleanup
-  }}
-  className="h-10"
-/>
-</div>
               </div>
               
               {filteredLogs.length === 0 && !loading && (
