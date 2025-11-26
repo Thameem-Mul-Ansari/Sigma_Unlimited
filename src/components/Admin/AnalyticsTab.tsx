@@ -1,230 +1,194 @@
+// src/components/Admin/AnalyticsTab.tsx
+
 import React, { useState, useEffect } from 'react';
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
-  Cell,
-  LabelList,
 } from 'recharts';
-import { Clock, AlertCircle } from 'lucide-react';
+import { Activity, Clock, Zap } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE = "https://gx5cdmd5-8000.inc1.devtunnels.ms/api";
 const AUTH_TOKEN = "19065757542afc134cb7c3c4b0cbe395e66c1c0a";
 
-interface QueryLog {
-  timestamp: string;
-}
-
-interface Conversation {
-  query_logs: QueryLog[];
-}
-
-interface AnalyticsTabProps {
-  logic?: any; // optional since we don't use it here, but keeps compatibility
-}
-
-export const AnalyticsTab: React.FC<AnalyticsTabProps> = () => {
-  const [data, setData] = useState<any[]>([]);
+export const AnalyticsTab: React.FC = () => {
+  const [hourlyData, setHourlyData] = useState<any[]>([]);
+  const [peakHour, setPeakHour] = useState<string>("–");
+  const [totalQueries, setTotalQueries] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUsageData = async () => {
+    const fetchData = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/history/all/`, {
-          headers: {
-            Authorization: `Token ${AUTH_TOKEN}`,
-          },
+        const res = await axios.get(`${API_BASE}/history/all/`, {
+          headers: { Authorization: `Token ${AUTH_TOKEN}` },
         });
 
-        const conversations: Conversation[] = response.data;
+        const counts = Array(24).fill(0);
+        let total = 0;
 
-        // Count queries per hour (0–23)
-        const hourCounts = Array(24).fill(0);
-
-        conversations.forEach((conv) => {
-          conv.query_logs.forEach((log) => {
-            const hour = new Date(log.timestamp).getHours();
-            hourCounts[hour]++;
+        res.data.forEach((conv: any) => {
+          conv.query_logs?.forEach((log: any) => {
+            const date = new Date(log.timestamp);
+            const hour = date.getHours();
+            if (!isNaN(hour)) {
+              counts[hour]++;
+              total++;
+            }
           });
         });
 
-        // Format for chart
-        const chartData = hourCounts.map((count, hour) => ({
-          hour,
-          time: `${hour.toString().padStart(2, '0')}:00`,
-          queries: count,
-          fill:
-            count === 0 ? '#f3f4f6' :
-            count <= 2 ? '#dbeafe' :
-            count <= 5 ? '#93c5fd' :
-            count <= 10 ? '#60a5fa' :
-            count <= 20 ? '#3b82f6' :
-            count <= 30 ? '#2563eb' :
-            '#1d4ed8',
-        }));
+       const formatted = counts.map((count, hour) => {
+  const isPM = hour >= 12;
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
 
-        setData(chartData);
+  return {
+    hour,
+    label: `${displayHour} ${isPM ? 'PM' : 'AM'}`,
+    queries: count,
+  };
+});
+
+        const max = Math.max(...counts);
+        const peak = formatted.find(d => d.queries === max)?.label || "–";
+
+        setHourlyData(formatted);
+        setPeakHour(peak);
+        setTotalQueries(total);
         setLoading(false);
       } catch (err) {
-        console.error("Failed to fetch analytics data:", err);
-        setError("Could not load usage analytics. Please try again later.");
+        console.error("Failed to load analytics:", err);
         setLoading(false);
       }
     };
 
-    fetchUsageData();
+    fetchData();
   }, []);
 
-  const maxQueries = Math.max(...data.map(d => d.queries), 0);
-  const peakHour = data.find(d => d.queries === maxQueries);
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white p-4 rounded-xl shadow-2xl border border-gray-200">
-          <p className="font-semibold text-gray-800">{payload[0].payload.time}</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">
-            {payload[0].value} {payload[0].value === 1 ? 'query' : ''} queries
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  const CustomLabel = (props: any) => {
-    const { x, y, width, height, value } = props;
-    if (value === 0) return null;
-    return (
-      <text
-        x={x + width / 2}
-        y={y + height / 2 + 5}
-        fill="white"
-        textAnchor="middle"
-        fontSize={14}
-        fontWeight="bold"
-      >
-        {value}
-      </text>
-    );
-  };
-
   return (
-    <div className="p-6 sm:p-8 space-y-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-gray-800">Analytics & Insights</h2>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-gray-800">Analytics</h1>
+        <p className="text-gray-600 mt-1">Daily usage patterns • 24-hour view</p>
       </div>
 
-      {/* Peak Usage Heatmap Card */}
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-        <div className="p-8 border-b border-gray-100">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-xl">
-              <Clock className="w-8 h-8 text-blue-600" />
-            </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-2xl font-bold text-gray-800">Peak Usage Time</h3>
-              <p className="text-gray-500 mt-1">Live query activity by hour of day (24h)</p>
+              <p className="text-sm font-medium text-gray-500">Total Queries</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {loading ? '––' : totalQueries.toLocaleString()}
+              </p>
             </div>
+            <Activity className="w-9 h-9 text-blue-600" />
           </div>
         </div>
 
-        <div className="p-8">
-          {loading && (
-            <div className="flex items-center justify-center h-96">
-              <p className="text-gray-500 text-lg">Loading live data...</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Peak Hour</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {loading ? '––' : peakHour}
+              </p>
             </div>
-          )}
+            <Clock className="w-9 h-9 text-purple-600" />
+          </div>
+        </div>
 
-          {error && (
-            <div className="flex flex-col items-center justify-center h-96 text-red-500 gap-4">
-              <AlertCircle size={64} />
-              <p className="text-lg">{error}</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Status</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">Live</p>
             </div>
-          )}
-
-          {!loading && !error && maxQueries === 0 && (
-            <div className="flex flex-col items-center justify-center h-96 text-gray-400">
-              <Clock size={64} className="mb-4 text-gray-300" />
-              <p className="text-lg">No activity recorded yet</p>
+            <div className="relative">
+              <Zap className="w-9 h-9 text-green-600" />
+              <span className="absolute inset-0 animate-ping">
+                <Zap className="w-9 h-9 text-green-400 opacity-75" />
+              </span>
             </div>
-          )}
+          </div>
+        </div>
+      </div>
 
-          {!loading && !error && maxQueries > 0 && (
-            <>
-              <ResponsiveContainer width="100%" height={520}>
-                <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" />
-                  <XAxis
-                    dataKey="time"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    tick={{ fontSize: 13, fill: '#6b7280' }}
-                  />
-                  <YAxis
-                    label={{
-                      value: 'Number of Queries',
-                      angle: -90,
-                      position: 'insideLeft',
-                      style: { fontSize: 15, fill: '#374151' },
-                    }}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }} />
-                  <Bar dataKey="queries" radius={[12, 12, 0, 0]}>
-                    <LabelList content={<CustomLabel />} />
-                    {data.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+      {/* Chart Card */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-gray-100">
+          <h2 className="text-xl font-semibold text-gray-800">Activity by Hour</h2>
+          <p className="text-sm text-gray-500 mt-1">Queries throughout the day</p>
+        </div>
 
-              {/* Peak Highlight */}
-              {peakHour && (
-                <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
-                  <p className="text-center text-lg">
-                    <span className="font-semibold text-gray-700">Peak hour today:</span>{' '}
-                    <span className="text-3xl font-bold text-blue-600">{peakHour.time}</span>{' '}
-                    <span className="text-gray-600">with</span>{' '}
-                    <span className="text-3xl font-bold text-blue-600">{peakHour.queries}</span>{' '}
-                    <span className="text-gray-600">queries</span>
-                  </p>
-                </div>
-              )}
+        <div className="p-6">
+          {loading ? (
+            <div className="h-80 flex items-center justify-center">
+              <p className="text-gray-500">Loading chart...</p>
+            </div>
+          ) : totalQueries === 0 ? (
+            <div className="h-80 flex flex-col items-center justify-center text-gray-400">
+              <Clock className="w-16 h-16 mb-4 text-gray-300" />
+              <p className="text-lg font-medium">No activity yet</p>
+              <p className="text-sm">Users haven't started chatting</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={hourlyData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="fillGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
 
-              {/* Legend */}
-              <div className="flex flex-wrap justify-center gap-6 mt-8 text-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gray-200"></div>
-                  <span>No activity</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-300"></div>
-                  <span>Low</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500"></div>
-                  <span>Medium</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-700"></div>
-                  <span>High</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-900"></div>
-                  <span className="font-bold text-blue-900">Peak</span>
-                </div>
-              </div>
-            </>
+                <XAxis
+  dataKey="label"
+  tick={{ fontSize: 11, fill: '#6b7280' }}   // Smaller, cleaner
+  axisLine={false}
+  tickLine={false}
+  interval="preserveStartEnd"   // Prevents overcrowding on small screens
+/>
+                <YAxis
+                  tick={{ fontSize: 13, fill: '#6b7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                  }}
+                  labelStyle={{ fontWeight: 'bold', color: '#374151' }}
+                />
+
+                <Area
+                  type="monotone"
+                  dataKey="queries"
+                  stroke="#4f46e5"
+                  strokeWidth={3}
+                  fillOpacity={1}
+                  fill="url(#fillGradient)"
+                  dot={{ fill: '#4f46e5', r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           )}
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="text-center text-xs text-gray-500">
+        Updated just now • All times in your local timezone
       </div>
     </div>
   );

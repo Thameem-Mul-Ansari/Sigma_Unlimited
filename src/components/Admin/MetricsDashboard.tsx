@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer,
+  ComposedChart, Bar, Line, Cell   // ← Add these
 } from 'recharts';
 
 interface MetricsDashboardProps {
@@ -106,57 +107,75 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
   };
 
   // Process token usage by time range (unchanged)
-  const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage[] => {
-    const dataMap = new Map<string, { tokens: number; queries: number }>();
+  // Replace your existing processTokenTrend function with this one
+const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage[] => {
+  const dataMap = new Map<string, { tokens: number; queries: number }>();
 
-    conversations.forEach((conv: any) => {
-      (conv.query_logs || []).forEach((q: any) => {
-        if (!q.timestamp || q.tokens_used == null) return;
-        const date = new Date(q.timestamp);
-        if (isNaN(date.getTime())) return;
+  conversations.forEach((conv: any) => {
+    (conv.query_logs || []).forEach((q: any) => {
+      if (!q.timestamp || q.tokens_used == null) return;
+      const date = new Date(q.timestamp);
+      if (isNaN(date.getTime())) return;
 
-        let key: string;
-        switch (range) {
-          case 'today':
-            key = date.toISOString().slice(0, 13); // hourly
-            break;
-          case '7d':
-          case '30d':
-            key = date.toISOString().slice(0, 10); // daily
-            break;
-          case '6m':
-          case '1y':
-            key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; // monthly
-            break;
-          default:
-            key = date.toISOString().slice(0, 10);
-        }
+      let key: string;
+      let label: string;
 
-        if (!dataMap.has(key)) dataMap.set(key, { tokens: 0, queries: 0 });
-        const entry = dataMap.get(key)!;
-        entry.tokens += q.tokens_used;
-        entry.queries += 1;
-      });
+      if (range === 'today') {
+        // Group by hour (0-23)
+        key = date.getHours().toString();
+        // Pretty hour label: 9 AM, 12 PM, etc.
+        label = date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          hour12: true,
+        }).replace(':00', ''); // removes :00 → "9 AM" instead of "9:00 AM"
+      } else if (range === '7d' || range === '30d') {
+        key = date.toISOString().slice(0, 10); // YYYY-MM-DD
+        label = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      } else if (range === '6m' || range === '1y') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        label = new Date(date.getFullYear(), date.getMonth()).toLocaleString('en-US', {
+          month: 'short',
+          year: 'numeric',
+        });
+      } else {
+        key = date.toISOString().slice(0, 10);
+        label = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+
+      if (!dataMap.has(key)) dataMap.set(key, { tokens: 0, queries: 0 });
+      const entry = dataMap.get(key)!;
+      entry.tokens += q.tokens_used || 0;
+      entry.queries += 1;
     });
+  });
 
-    const sorted = Array.from(dataMap.entries())
-      .map(([date, value]) => ({
-        date,
-        tokens: Math.round(value.tokens),
-        queries: value.queries
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return sorted.map(item => ({
-      ...item,
-      label:
-        range === 'today'
-          ? new Date(item.date).toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
-          : range === '6m' || range === '1y'
-          ? new Date(item.date + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
-          : new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  // Sort by key (for today: 0-23, for dates: chronological)
+  const sortedEntries = Array.from(dataMap.entries())
+    .sort(([a], [b]) => {
+      if (range === 'today') {
+        return parseInt(a) - parseInt(b); // sort hours 0 → 23
+      }
+      return a.localeCompare(b);
+    })
+    .map(([key, value]) => ({
+      date: key,
+      tokens: Math.round(value.tokens),
+      queries: value.queries,
+      // label is already set above
+      label: range === 'today'
+        ? new Date(0, 0, 0, parseInt(key)).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            hour12: true,
+          }).replace(':00', '')
+        : new Date(key + (range === '6m' || range === '1y' ? '-01' : '')).toLocaleDateString('en-US', {
+            month: range === '6m' || range === '1y' ? 'short' : 'short',
+            day: range !== '6m' && range !== '1y' ? 'numeric' : undefined,
+            year: range === '1y' ? 'numeric' : undefined,
+          }),
     }));
-  };
+
+  return sortedEntries;
+};
 
   // Shared fetch function — used for initial load AND silent refresh
   const fetchMetrics = async (isInitial: boolean = false) => {
@@ -308,74 +327,110 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
 
       {/* Charts & Events */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Token Usage Trend */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Token Usage Trend</h3>
-              <p className="text-sm text-gray-500">Daily token consumption over time</p>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {(['today', '7d', '30d', '6m', '1y'] as const).map((range) => (
-                <button
-                  key={range}
-                  onClick={() => setTimeRange(range)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    timeRange === range
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {range === 'today' ? 'Today' :
-                   range === '7d' ? '7 Days' :
-                   range === '30d' ? '30 Days' :
-                   range === '6m' ? '6 Months' : '1 Year'}
-                </button>
-              ))}
-            </div>
-          </div>
+       {/* Token Usage Trend – Clean & Modern Bar + Line Combo */}
+<div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+  <div className="p-6 pb-4">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h3 className="text-xl font-semibold text-gray-900">Token Usage & Queries</h3>
+        <p className="text-sm text-gray-500">Daily breakdown of tokens consumed and user queries</p>
+      </div>
 
-          {tokenTrendData.length > 0 ? (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={tokenTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.05}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                    formatter={(value: number) => [`${value.toLocaleString()} tokens`, 'Tokens Used']}
-                    labelStyle={{ fontWeight: 'bold', color: '#1f2937' }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="tokens"
-                    stroke="#2563EB"
-                    strokeWidth={3}
-                    fillOpacity={1}
-                    fill="url(#colorTokens)"
-                    dot={{ fill: '#2563EB', r: 5 }}
-                    activeDot={{ r: 7 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-80 flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border-2 border-dashed border-blue-200">
-              <div className="text-center">
-                <TrendingUp size={48} className="mx-auto text-blue-400 mb-3" />
-                <p className="text-lg font-medium text-gray-700">No token usage yet</p>
-                <p className="text-sm text-gray-500 mt-1">Start chatting to see trends</p>
-              </div>
-            </div>
-          )}
+      {/* Clean time range pills */}
+      <div className="flex gap-2">
+        {(['today', '7d', '30d', '6m', '1y'] as const).map((range) => (
+          <button
+            key={range}
+            onClick={() => setTimeRange(range)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              timeRange === range
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {range === 'today' ? 'Today' : range === '7d' ? '7D' : range === '30d' ? '30D' : range === '6m' ? '6M' : '1Y'}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {tokenTrendData.length > 0 ? (
+      <div className="h-96">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={tokenTrendData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="4 8" stroke="#f3f4f6" vertical={false} />
+            
+            <XAxis 
+              dataKey="label" 
+              tick={{ fontSize: 12, fill: '#6b7280' }} 
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis 
+              yAxisId="left"
+              tick={{ fontSize: 12, fill: '#6b7280' }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+            />
+            <YAxis 
+              yAxisId="right" 
+              orientation="right"
+              tick={{ fontSize: 12, fill: '#10b981' }}
+              axisLine={false}
+              tickLine={false}
+            />
+
+            <Tooltip
+              contentStyle={{ 
+                backgroundColor: 'white', 
+                border: '1px solid #e5e7eb', 
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+              }}
+              formatter={(value: number, name: string) => [
+                value.toLocaleString(),
+                name === 'tokens' ? 'Tokens' : 'Queries'
+              ]}
+            />
+
+            {/* Bars for Tokens */}
+            <Bar 
+              yAxisId="left"
+              dataKey="tokens" 
+              fill="#3b82f6"
+              radius={[8, 8, 0, 0]}
+              maxBarSize={60}
+            >
+              {tokenTrendData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={index === tokenTrendData.length - 1 ? '#1d4ed8' : '#60a5fa'} />
+              ))}
+            </Bar>
+
+            {/* Smooth Line for Query Count */}
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="queries"
+              stroke="#10b981"
+              strokeWidth={3}
+              dot={{ fill: '#10b981', r: 5 }}
+              activeDot={{ r: 7, stroke: '#fff', strokeWidth: 3 }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    ) : (
+      <div className="h-96 flex items-center justify-center border-2 border-dashed border-gray-200 rounded-xl">
+        <div className="text-center">
+          <BarChart2 size={56} className="mx-auto text-gray-300 mb-4" />
+          <p className="text-lg font-medium text-gray-600">No data available</p>
+          <p className="text-sm text-gray-400 mt-1">Activity will appear here once users start chatting</p>
         </div>
+      </div>
+    )}
+  </div>
+</div>
 
         {/* System Events */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">

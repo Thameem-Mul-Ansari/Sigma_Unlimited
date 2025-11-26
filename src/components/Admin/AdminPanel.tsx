@@ -32,7 +32,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
             case 'faq':
                 return <FAQManagementTab logic={logic} />;
             case 'analytics':
-                return <AnalyticsTab logic={logic} />;
+                return <AnalyticsTab/>;
             default:
                 return <MetricsDashboard logic={logic} />;
         }
