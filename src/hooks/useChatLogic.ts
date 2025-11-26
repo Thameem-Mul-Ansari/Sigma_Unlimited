@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Groq from "groq-sdk";
-// Assuming you created and exported UserData from useAuth.ts
 import { UserData } from './useAuth'; 
 
 // --- Type Definitions ---
@@ -46,17 +45,18 @@ export interface ContextMenuState {
 }
 
 // --- Backend Data Interfaces ---
-interface BackendMessage {
-  content: string;
-  is_user: boolean;
+interface QueryLog {
+  prompt: string;
+  response: string;
   timestamp: string;
+  source_documents?: (string | { name: string; url: string })[];
 }
 
 interface BackendConversation {
   id: number;
   title?: string;
   created_at: string;
-  messages: BackendMessage[];
+  query_logs: QueryLog[];
 }
 
 // --- Language Configuration ---
@@ -126,23 +126,7 @@ const groq = new Groq({
   dangerouslyAllowBrowser: true
 });
 
-// --- Core Helper Function: File Conversion (remains same) ---
-export function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64Data = reader.result?.toString().split(',')[1];
-      if (!base64Data) {
-        return reject(new Error('Failed to read file as Base64'));
-      }
-      resolve(base64Data);
-    };
-    reader.onerror = () => reject(new Error('FileReader failed to read file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-// --- Date/Timestamp Helper (remains same) ---
+// --- Helper Functions ---
 const getTimestampGroup = (dateString: string, translations: typeof LANGUAGES['en']['translations']): string => {
   const date = new Date(dateString);
   const now = new Date();
@@ -159,7 +143,7 @@ const getTimestampGroup = (dateString: string, translations: typeof LANGUAGES['e
   return translations.older;
 };
 
-// --- Initial State (remains same) ---
+// --- Initial State ---
 const initialLanguage = 'en';
 const initialTranslations = LANGUAGES[initialLanguage].translations;
 const initialChatId = 'temp-new-chat';
@@ -173,15 +157,13 @@ const createInitialChat = (translations: typeof initialTranslations, id: string)
 
 const initialChat: Chat = createInitialChat(initialTranslations, initialChatId);
 
-// --- Custom Hook ---
-// ⚠️ MODIFIED: Accepts userData
+// --- Main Custom Hook ---
 export function useChatLogic(authToken: string | null, userData: UserData | null) {
+  // State
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<'en' | 'ar'>(initialLanguage);
-  const [chats, setChats] = useState<Chat[]>(() => {
-    return [createInitialChat(initialTranslations, initialChatId)];
-  });
-  const [currentChatId, setCurrentChatId] = useState(initialChatId);
+  const [chats, setChats] = useState<Chat[]>([createInitialChat(initialTranslations, initialChatId)]);
+  const [currentChatId, setCurrentChatId] = useState(() => localStorage.getItem('activeChatId') || initialChatId);
   const [messages, setMessages] = useState<Message[]>(initialChat.messages);
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -196,17 +178,21 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
+  // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const hasLoadedHistory = useRef(false);
+  const previousChatId = useRef(currentChatId);
 
+  // Derived values
   const t = LANGUAGES[language].translations;
   const currentLanguageDir = LANGUAGES[language].dir;
 
-  const currentChat = useMemo(() =>
+  const currentChat = useMemo(() => 
     chats.find(chat => chat.id === currentChatId),
     [chats, currentChatId]
   );
@@ -214,46 +200,48 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
   const groupedChats = useMemo(() => {
     const translations = LANGUAGES[language].translations;
     return chats.reduce((acc: Record<string, Chat[]>, chat: Chat) => {
-      if (chat.id.startsWith('temp-')) {
-        return acc;
-      }
+      if (chat.id.startsWith('temp-')) return acc;
       const groupKey = chat.timestamp;
-      if (!acc[groupKey]) {
-        acc[groupKey] = [];
-      }
+      if (!acc[groupKey]) acc[groupKey] = [];
       acc[groupKey].push(chat);
       return acc;
-    }, {} as Record<string, Chat[]>);
+    }, {});
   }, [chats, language]);
 
-  // ⭐️ ADDED: Utility function to get user initial
-  const getUserInitial = useCallback(() => {
-    if (!userData?.username) return 'U';
-    return userData.username.charAt(0).toUpperCase();
-  }, [userData]);
+  // Utility functions
+  const getUserInitial = useCallback(() => 
+    userData?.username ? userData.username.charAt(0).toUpperCase() : 'U',
+    [userData]
+  );
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
+  // Save active chat ID to localStorage
+  useEffect(() => {
+    if (currentChatId) {
+      localStorage.setItem('activeChatId', currentChatId);
+    }
+  }, [currentChatId]);
+
+  // Chat management functions
   const updateChatMessages = useCallback((chatId: string, newMessages: Message[]) => {
-    setChats(prev => prev.map(chat =>
+    setChats(prev => prev.map(chat => 
       chat.id === chatId ? { ...chat, messages: newMessages } : chat
     ));
   }, []);
 
   const updateChatTitle = useCallback((chatId: string, newTitle: string) => {
-    setChats(prev => prev.map(chat =>
+    setChats(prev => prev.map(chat => 
       chat.id === chatId ? { ...chat, title: newTitle } : chat
     ));
   }, []);
 
   const selectChat = useCallback((chatId: string) => {
     setCurrentChatId(chatId);
-    const chat = chats.find(c => c.id === chatId);
-    setMessages(chat?.messages || []);
-    setSelectedFiles([]);
-  }, [chats]);
+    setTimeout(scrollToBottom, 100);
+  }, []);
 
   const createNewChat = useCallback((selectNew: boolean = true) => {
     const newChatId = `temp-${Date.now()}`;
@@ -270,42 +258,41 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
   const deleteChat = useCallback(async (chatId: string) => {
     try {
-        if (!chatId.startsWith('temp-')) {
+      if (!chatId.startsWith('temp-')) {
         const deleteEndpoint = `${backendConfig.backendUrl}/api/delete/${chatId}/`;
         const response = await fetch(deleteEndpoint, {
-            method: 'DELETE',
-            headers: {
+          method: 'DELETE',
+          headers: {
             'Content-Type': 'application/json',
             'Authorization': backendConfig.authToken || '',
-            },
+          },
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to delete chat: ${response.status} ${response.statusText}`);
+          throw new Error(`Failed to delete chat: ${response.status} ${response.statusText}`);
         }
-        }
+      }
 
-        setChats(prev => prev.filter(chat => chat.id !== chatId));
+      setChats(prev => prev.filter(chat => chat.id !== chatId));
 
-        if (currentChatId === chatId) {
+      if (currentChatId === chatId) {
         const remainingChats = chats.filter(c => c.id !== chatId);
         if (remainingChats.length > 0) {
-            const realChats = remainingChats.filter(c => !c.id.startsWith('temp-'));
-            if (realChats.length > 0) {
+          const realChats = remainingChats.filter(c => !c.id.startsWith('temp-'));
+          if (realChats.length > 0) {
             selectChat(realChats[0].id);
-            } else {
+          } else {
             selectChat(initialChatId);
-            }
+          }
         } else {
-            createNewChat();
+          createNewChat();
         }
-        }
-        setContextMenu(null);
+      }
+      setContextMenu(null);
     } catch (error) {
-        console.error("Error deleting chat:", error);
+      console.error("Error deleting chat:", error);
     }
-    }, [backendConfig.backendUrl, backendConfig.authToken, currentChatId, chats, selectChat, createNewChat]);
-
+  }, [backendConfig.backendUrl, backendConfig.authToken, currentChatId, chats, selectChat, createNewChat]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, chatId: string) => {
     e.preventDefault();
@@ -331,32 +318,57 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     ));
     setChats(prevChats => prevChats.map(chat =>
       chat.id === currentChatId
-        ? {
-          ...chat,
-          messages: chat.messages.map(msg =>
-            msg.id === messageId ? { ...msg, feedback } : msg
-          )
-        }
+        ? { ...chat, messages: chat.messages.map(msg => msg.id === messageId ? { ...msg, feedback } : msg) }
         : chat
     ));
   }, [currentChatId]);
+
+  // Source Documents Helpers
+  const mapSourceDocuments = useCallback((backendDocs: any[] | undefined): SourceDocument[] => {
+    if (!backendDocs || !Array.isArray(backendDocs)) return [];
+
+    return backendDocs.map((doc) => {
+      if (typeof doc === 'object' && doc !== null && 'name' in doc && 'url' in doc) {
+        return { name: doc.name, url: doc.url };
+      }
+      if (typeof doc === 'string') {
+        return { name: doc, url: `${backendConfig.backendUrl}/media/${doc}` };
+      }
+      return { name: 'Unknown Document', url: '#' };
+    });
+  }, [backendConfig.backendUrl]);
 
   const mapBackendChatsToFrontend = useCallback((backendHistory: BackendConversation[]): Chat[] => {
     if (!backendHistory || backendHistory.length === 0) return [];
     const translations = LANGUAGES[language].translations;
 
     return backendHistory.map((conversation: BackendConversation) => {
-      const messages: Message[] = (conversation.messages || []).map((msg: BackendMessage, index: number): Message => ({
-        id: `${conversation.id}-${index}`,
-        role: msg.is_user ? 'user' : 'assistant',
-        content: msg.content || '...',
-        type: 'text',
-        feedback: null,
-      }));
+      const frontendMessages: Message[] = [];
+
+      (conversation.query_logs || []).forEach((log: QueryLog, index: number) => {
+        frontendMessages.push({
+          id: `user-${conversation.id}-${index}`,
+          role: 'user',
+          content: log.prompt || '...',
+          type: 'text',
+          feedback: null,
+        });
+
+        const sourceDocs: SourceDocument[] = mapSourceDocuments(log.source_documents);
+
+        frontendMessages.push({
+          id: `ai-${conversation.id}-${index}`,
+          role: 'assistant',
+          content: log.response || '...',
+          type: 'text',
+          feedback: null,
+          sourceDocuments: sourceDocs
+        });
+      });
 
       let title = conversation.title;
-      if (!title && messages.length > 0) {
-        const firstUserMessage = messages.find((m: Message) => m.role === 'user');
+      if (!title && frontendMessages.length > 0) {
+        const firstUserMessage = frontendMessages.find(m => m.role === 'user');
         if (firstUserMessage?.content) {
           title = firstUserMessage.content.substring(0, 30) + (firstUserMessage.content.length > 30 ? '...' : '');
         }
@@ -369,11 +381,12 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
         id: String(conversation.id),
         title: title,
         timestamp: timestampGroup,
-        messages: messages,
+        messages: frontendMessages,
       };
     });
-  }, [language]);
+  }, [language, mapSourceDocuments]);
 
+  // Load History
   const loadChatHistory = useCallback(async (token: string | null) => {
     setIsHistoryLoading(true);
     if (!token) {
@@ -384,8 +397,6 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
     try {
       const historyEndpoint = `${backendConfig.backendUrl}/api/history/`;
-      console.log("Fetching chat history from:", historyEndpoint);
-
       const response = await fetch(historyEndpoint, {
         method: 'GET',
         headers: {
@@ -399,17 +410,23 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
       }
 
       const backendHistory: BackendConversation[] = await response.json();
-      console.log("Raw backend history:", backendHistory);
-
-      let frontendChats = mapBackendChatsToFrontend(backendHistory);
-      console.log("Mapped frontend chats:", frontendChats);
-
+      const frontendChats = mapBackendChatsToFrontend(backendHistory);
       frontendChats.sort((a, b) => parseInt(b.id) - parseInt(a.id));
 
       setChats(prevChats => {
         const tempChat = prevChats.find(c => c.id.startsWith('temp-')) || createInitialChat(t, initialChatId);
-        const filteredFetchedChats = frontendChats.filter(chat => !chat.id.startsWith('temp-'));
-        return [tempChat, ...filteredFetchedChats];
+        const mergedChats = [tempChat, ...frontendChats.filter(chat => !chat.id.startsWith('temp-'))];
+
+        const savedId = localStorage.getItem('activeChatId');
+        if (savedId && !savedId.startsWith('temp-')) {
+          const exists = mergedChats.some(c => c.id === savedId);
+          if (!exists && frontendChats.length > 0) {
+            localStorage.removeItem('activeChatId');
+            setCurrentChatId(initialChatId);
+          }
+        }
+        
+        return mergedChats;
       });
 
     } catch (error) {
@@ -425,6 +442,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     }
   }, [backendConfig.backendUrl, mapBackendChatsToFrontend, t]);
 
+  // --- FIXED: Generate Response with Working Upload Logic ---
   const generateResponse = useCallback(async (userPrompt: string, files: File[] = []): Promise<{ content: string, conversationId?: number, sourceDocuments?: SourceDocument[] }> => {
     const token = authToken || backendConfig.authToken;
     if (!token) {
@@ -433,26 +451,75 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
     try {
       setIsLoading(true);
+      
+      const isNewChat = currentChatId.startsWith('temp-');
+      let conversationIdForRequest: number | null = isNewChat ? null : parseInt(currentChatId, 10);
+
+      // --- STEP 1: UPLOAD FILES (If present) ---
+      if (files.length > 0) {
+        // For new chats with files, we need to create a conversation first
+        if (!conversationIdForRequest) {
+          // Create a minimal conversation to get an ID
+          const createResponse = await fetch(`${backendConfig.backendUrl}/api/rag/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': token,
+            },
+            body: JSON.stringify({
+              prompt: ".",
+              conversation_id: null
+            })
+          });
+
+          if (createResponse.ok) {
+            const createResult = await createResponse.json();
+            conversationIdForRequest = createResult.conversation_id;
+            console.log('🆕 Created conversation for upload:', conversationIdForRequest);
+          } else {
+            throw new Error('Failed to create conversation for file upload');
+          }
+        }
+
+        // Now upload files with the conversation_id
+        const uploadEndpoint = `${backendConfig.backendUrl}/api/upload/`;
+        const formData = new FormData();
+        
+        files.forEach(file => {
+          formData.append('files', file);
+        });
+
+        // Always send conversation_id as string (matching Postman)
+        formData.append('conversation_id', conversationIdForRequest!.toString());
+
+        console.log('📤 Uploading files to conversation:', conversationIdForRequest);
+
+        const uploadResponse = await fetch(uploadEndpoint, {
+          method: 'POST',
+          headers: { 'Authorization': token },
+          body: formData
+        });
+
+        if (!uploadResponse.ok) {
+          const errText = await uploadResponse.text();
+          throw new Error(`Upload Failed (${uploadResponse.status}): ${errText}`);
+        }
+        
+        await uploadResponse.json(); // Process response if needed
+        console.log('✅ Files uploaded successfully');
+      }
+
+      // --- STEP 2: CHAT (RAG) ---
       const chatEndpoint = `${backendConfig.backendUrl}/api/rag/`;
       
       const payload: any = {
-        prompt: userPrompt.trim() || 'Hello'
+        prompt: userPrompt.trim() || 'Hello',
+        conversation_id: conversationIdForRequest
       };
 
-      const isNewChat = currentChatId.startsWith('temp-');
-      let conversationIdNum: number | undefined;
+      console.log('💬 Sending chat to conversation:', payload.conversation_id);
 
-      if (!isNewChat) {
-        conversationIdNum = parseInt(currentChatId, 10);
-        if (!isNaN(conversationIdNum) && conversationIdNum > 0) {
-          payload.conversation_id = conversationIdNum;
-        } else {
-          console.warn('Invalid conversation ID format, proceeding without conversation_id:', currentChatId);
-          conversationIdNum = undefined;
-        }
-      }
-
-      const response = await fetch(chatEndpoint, {
+      const chatResponse = await fetch(chatEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -461,57 +528,46 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
         body: JSON.stringify(payload)
       });
 
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = JSON.parse(responseText);
-        } catch (e) {
-          errorData = { detail: responseText || response.statusText };
-        }
-
-        if (response.status === 401 || response.status === 403) {
-          return { content: `Authorization Failed: ${errorData.detail || 'Invalid token or permissions.'}` };
-        }
-
-        throw new Error(`API Error ${response.status}: ${JSON.stringify(errorData)}`);
+      if (!chatResponse.ok) {
+        const errText = await chatResponse.text();
+        throw new Error(`Chat API Failed (${chatResponse.status}): ${errText}`);
       }
 
-      const result = JSON.parse(responseText);
-      const responseContent = result.content || result.response || result.text || "No response text found in API output.";
-      const sourceDocuments = result.source_documents || [];
-
+      const result = await chatResponse.json();
+      
+      // Return the conversation ID that was used
+      const finalConversationId = result.conversation_id || conversationIdForRequest;
+      
       return {
-        content: responseContent,
-        conversationId: result.conversation_id,
-        sourceDocuments: sourceDocuments
+        content: result.content || result.response || result.text || "No response.",
+        conversationId: finalConversationId,
+        sourceDocuments: mapSourceDocuments(result.source_documents)
       };
 
     } catch (error) {
-      console.error('Error generating response from backend:', error);
+      console.error('Error generating response:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      return { content: `I apologize, but I encountered an error: ${errorMessage}. Please try again.` };
+      return { content: `Error: ${errorMessage}. Please try again.` };
     } finally {
       setIsLoading(false);
     }
-  }, [authToken, backendConfig.backendUrl, backendConfig.authToken, currentChatId]);
+  }, [authToken, backendConfig.backendUrl, backendConfig.authToken, currentChatId, mapSourceDocuments]);
 
   const regenerateResponse = useCallback(async (lastUserMessage: Message) => {
     if (isLoading) return;
 
-    const messagesWithoutLastAI = messages.filter((msg, index, arr) => {
-      if (index === arr.length - 1 && msg.role === 'assistant') {
-        return false;
-      }
-      return true;
-    });
+    const messagesWithoutLastAI = messages.filter((msg, index, arr) => 
+      !(index === arr.length - 1 && msg.role === 'assistant')
+    );
 
     setMessages(messagesWithoutLastAI);
     updateChatMessages(currentChatId, messagesWithoutLastAI);
 
     try {
-      const { content: response, sourceDocuments } = await generateResponse(lastUserMessage.content, lastUserMessage.files || []);
+      const { content: response, sourceDocuments } = await generateResponse(
+        lastUserMessage.content, 
+        lastUserMessage.files || []
+      );
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -536,6 +592,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     const currentFiles = selectedFiles;
     const isNewChatBeforeSend = currentChatId.startsWith('temp-');
 
+    // Optimistic UI Update
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -557,6 +614,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
     try {
       setIsLoading(true);
+      
       const { content: responseContent, conversationId, sourceDocuments } = await generateResponse(currentInput, currentFiles);
 
       const aiMessage: Message = {
@@ -569,6 +627,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
       let finalChatId = currentChatId;
 
+      // Handle New Conversation Creation
       if (isNewChatBeforeSend && conversationId) {
         const newChatId = String(conversationId);
         finalChatId = newChatId;
@@ -598,7 +657,12 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
 
     } catch (error) {
       console.error('Error in handleSendMessage:', error);
-      setMessages(messages);
+      setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: "Sorry, I encountered an error processing your request. Please try again.",
+          type: 'text'
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -614,7 +678,6 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ✅ UPDATED: Groq Whisper Integration (remains same)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -630,13 +693,9 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
         setIsTranscribing(true);
         
         try {
-          // Create audio blob from chunks
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          
-          // Convert blob to File object for Groq API
           const audioFile = new File([audioBlob], "recording.webm", { type: 'audio/webm' });
           
-          // Transcribe using Groq Whisper
           const transcription = await groq.audio.transcriptions.create({
             file: audioFile,
             model: "whisper-large-v3",
@@ -644,7 +703,6 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
             response_format: "verbose_json",
           });
           
-          // Set the transcribed text to input
           setInputValue(prev => prev + (prev.trim() ? '\n' : '') + transcription.text);
         } catch (error) {
           console.error('Error transcribing audio:', error);
@@ -670,27 +728,36 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     }
   };
 
+  // Effects
   useEffect(() => {
     setBackendConfig(prev => ({ ...prev, authToken: authToken }));
   }, [authToken]);
 
   useEffect(() => {
-    if (authToken) {
-      console.log("Auth token available, loading chat history...");
+    if (authToken && !hasLoadedHistory.current) {
       loadChatHistory(authToken);
-    } else {
-      console.log("No auth token available, using initial chat");
+      hasLoadedHistory.current = true;
+    } else if (!authToken) {
       setChats([createInitialChat(t, initialChatId)]);
       setCurrentChatId(initialChatId);
       setMessages([]);
+      hasLoadedHistory.current = false;
     }
   }, [authToken, loadChatHistory, t]);
 
   useEffect(() => {
+    if (previousChatId.current !== currentChatId) {
+      setSelectedFiles([]);
+      previousChatId.current = currentChatId;
+    }
+  }, [currentChatId]);
+
+  useEffect(() => {
     const chat = chats.find(c => c.id === currentChatId);
-    setMessages(chat?.messages || []);
-    setSelectedFiles([]);
-  }, [currentChatId, chats]);
+    if (chat && chat.messages !== messages) {
+      setMessages(chat.messages);
+    }
+  }, [currentChatId, chats, messages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -707,9 +774,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [messages, selectedFiles, inputValue]);
 
   useEffect(() => {
@@ -751,8 +816,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     removeFile,
     startRecording,
     stopRecording,
-    getUserInitial, // ⭐️ EXPOSED: The new utility function
+    getUserInitial,
   };
 }
-
 export type UseChatLogicReturn = ReturnType<typeof useChatLogic>;
