@@ -385,5 +385,9 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
       </div>
     </div>
   );
+<<<<<<< Updated upstream
 };
 
+=======
+};
+>>>>>>> Stashed changes

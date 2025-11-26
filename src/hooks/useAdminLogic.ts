@@ -58,7 +58,7 @@ export function useAdminLogic() {
         { title: 'Total Tokens Used (MoM)', value: '1.2M', unit: 'tokens', color: 'text-blue-600', icon: Activity },
         { title: 'Average Latency', value: '450', unit: 'ms', color: 'text-sky-600', icon: MessageSquare },
         { title: 'Ingestion Success Rate', value: '95', unit: '%', color: 'text-green-600', icon: Upload },
-        { title: 'API Uptime', value: '99.9', unit: '%', color: 'text-teal-600', icon: BarChart2 },
+        { title: 'API Uptime', value: '99.9', unit: '%', color: 'text-teal-600', icon: BarChart2 }
     ];
 
     // --- Return Values ---

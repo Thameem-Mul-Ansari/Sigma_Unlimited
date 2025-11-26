@@ -85,7 +85,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ logic, isOpen, onClo
                             A
                         </div>
                         <div>
-                            <div className="text-sm font-semibold text-gray-800">Ansari</div>
+                            <div className="text-sm font-semibold text-gray-800">Admin</div>
                             <div className="text-xs text-blue-600 font-medium">Role: {userRole}</div>
                         </div>
                     </div>
