@@ -1035,9 +1035,6 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
   );
 };
 
-<<<<<<< Updated upstream
+
 export default ChatLogsTab;
 
-=======
-export default ChatLogsTab;
->>>>>>> Stashed changes
