@@ -174,17 +174,29 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
       const conversations = await response.json();
 
       const allQueries = conversations.flatMap((conv: any) =>
-        (conv.query_logs || []).map((q: any) => ({
-          tokens_used: q.tokens_used || 0,
-          timestamp: q.timestamp,
-          response_time: q.response_time || Math.random() * 600 + 200,
-        }))
-      );
+  (conv.query_logs || []).map((q: any) => ({
+    tokens_used: q.tokens_used || 0,
+    timestamp: q.timestamp,
+    latency: q.latency,        // This line was missing!
+  }))
+);
 
       const totalTokens = allQueries.reduce((sum: number, q: any) => sum + q.tokens_used, 0);
-      const avgLatency = allQueries.length > 0
-        ? Math.round(allQueries.reduce((sum: number, q: any) => sum + q.response_time, 0) / allQueries.length)
+      // Calculate real average latency from the `latency` field (in seconds → convert to ms)
+// Real smart average response time (auto ms → sec)
+        const validLatencies = allQueries
+        .map((q: any) => q.latency)
+        .filter((l: number): l is number => typeof l === 'number' && l >= 0);
+
+        const avgLatencySec = validLatencies.length > 0
+        ? validLatencies.reduce((a: any, b: any) => a + b, 0) / validLatencies.length
         : 0;
+
+        const avgLatencyMs = Math.round(avgLatencySec * 1000);
+
+        const displayLatency = avgLatencyMs < 1000
+        ? `${avgLatencyMs}ms`
+        : `${(avgLatencyMs / 1000).toFixed(2)} s`;
 
       // NEW: Calculate avg conversation duration (local fallback; use API field if available)
       let avgConversationDuration = '0m 0s';
@@ -199,8 +211,13 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
 
       const metrics: SystemMetric[] = [
         { title: 'Total Tokens Used (All Time)', value: formatTokens(totalTokens), unit: 'tokens', color: 'text-blue-600', icon: Activity },
-        { title: 'Average Response Time', value: avgLatency.toString(), unit: 'ms', color: 'text-purple-600', icon: MessageSquare },
-        { title: 'Total Conversations', value: conversations.length.toString(), unit: 'sessions', color: 'text-green-600', icon: Upload },
+        {
+  title: 'Average Response Time',
+  value: validLatencies.length === 0 ? 'N/A' : displayLatency,
+  unit: undefined,
+  color: 'text-purple-600',
+  icon: MessageSquare
+},{ title: 'Total Conversations', value: conversations.length.toString(), unit: 'sessions', color: 'text-green-600', icon: Upload },
         { title: 'Avg Conversation Duration', value: avgConversationDuration, /* no unit */ color: 'text-teal-600', icon: Clock } // NEW: Replaced uptime
       ];
 

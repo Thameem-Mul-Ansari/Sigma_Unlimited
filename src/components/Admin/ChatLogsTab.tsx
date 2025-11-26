@@ -19,6 +19,7 @@ interface QueryLog {
   completion_tokens: number;
   total_cost: number;
   timestamp: string;
+  latency: number;
 }
 
 interface ConversationLog {
@@ -60,6 +61,7 @@ interface Analytics {
 const API_BASE = 'https://gx5cdmd5-8000.inc1.devtunnels.ms/api';
 const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
 const COST_PER_TOKEN = 0.00002;
+const PAGE_SIZE = 10;
 
 const calculateDuration = (timestamp: string): string => {
   const minutes = Math.floor(Math.random() * 14 + 1);
@@ -141,6 +143,8 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<EnrichedQueryLog | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
   // Column filters
   const [sessionFilter, setSessionFilter] = useState('');
@@ -169,8 +173,8 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
       avgTokensPerSession: 0,
       activeUsers: 0,
       totalQueries: 0,
-      avgResponseTime: 1.8,
-      avgConversationDuration: '0m 0s' // ← new field
+      avgResponseTime: 0,
+      avgConversationDuration: '0m 0s'
     });
     return;
   }
@@ -179,11 +183,25 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
   const uniqueConversations = new Set(logs.map(log => log.conversation_id));
   const totalTokens = logs.reduce((sum, log) => sum + (log.tokens_used || 0), 0);
 
-  // Group logs by conversation_id to compute duration
-  const conversationDurations: number[] = []; // in seconds
+  // REAL Average Response Time (from actual latency field)
+  const validLatencies = logs
+    .map(log => log.latency)
+    .filter((l): l is number => typeof l === 'number' && l >= 0);
 
+  const avgLatencyMs = validLatencies.length > 0
+    ? Math.round(
+        validLatencies.reduce((sum, lat) => sum + lat, 0) * 1000 / validLatencies.length
+      )
+    : 0;
+
+  const avgResponseTimeDisplay = avgLatencyMs === 0
+    ? 0
+    : avgLatencyMs < 1000
+      ? avgLatencyMs / 1000  // return as seconds (e.g., 0.189)
+      : avgLatencyMs / 1000;
+
+  // Conversation duration
   const conversationMap = new Map<number, EnrichedQueryLog[]>();
-
   logs.forEach(log => {
     if (!conversationMap.has(log.conversation_id)) {
       conversationMap.set(log.conversation_id, []);
@@ -191,105 +209,105 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
     conversationMap.get(log.conversation_id)!.push(log);
   });
 
-  conversationMap.forEach((queries) => {
-    if (queries.length === 0) return;
-
-    // Sort queries by timestamp
+  const conversationDurations: number[] = [];
+  conversationMap.forEach(queries => {
+    if (queries.length < 2) return;
     queries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    const firstQueryTime = new Date(queries[0].timestamp).getTime();
-    const lastQueryTime = new Date(queries[queries.length - 1].timestamp).getTime();
-
-    if (!isNaN(firstQueryTime) && !isNaN(lastQueryTime)) {
-      const durationSeconds = Math.floor((lastQueryTime - firstQueryTime) / 1000);
-      if (durationSeconds >= 0) {
-        conversationDurations.push(durationSeconds);
-      }
+    const first = new Date(queries[0].timestamp).getTime();
+    const last = new Date(queries[queries.length - 1].timestamp).getTime();
+    if (!isNaN(first) && !isNaN(last) && last >= first) {
+      conversationDurations.push(Math.floor((last - first) / 1000));
     }
   });
 
-  const totalDurationSeconds = conversationDurations.reduce((a, b) => a + b, 0,);
-  const avgDurationSeconds = conversationDurations.length > 0 
-    ? totalDurationSeconds / conversationDurations.length 
+  const avgDurationSeconds = conversationDurations.length > 0
+    ? conversationDurations.reduce((a, b) => a + b, 0) / conversationDurations.length
     : 0;
-
-  const avgMinutes = Math.floor(avgDurationSeconds / 60);
-  const avgSeconds = Math.floor(avgDurationSeconds % 60);
-  const avgConversationDuration = `${avgMinutes}m ${avgSeconds}s`;
+  const mins = Math.floor(avgDurationSeconds / 60);
+  const secs = Math.floor(avgDurationSeconds % 60);
+  const avgConversationDuration = `${mins}m ${secs}s`;
 
   setAnalytics({
     totalSessions: uniqueConversations.size,
-    totalTokens: totalTokens,
+    totalTokens,
     avgTokensPerSession: uniqueConversations.size > 0 ? Math.round(totalTokens / uniqueConversations.size) : 0,
     activeUsers: uniqueUsernames.size,
     totalQueries: logs.length,
-    avgResponseTime: 1.8,
-    avgConversationDuration // ← now included
+    avgResponseTime: avgResponseTimeDisplay,
+    avgConversationDuration
   });
 }, []);
 
-  const fetchChatHistory = useCallback(async () => {
+  const fetchChatHistory = useCallback(async (pageNum: number = 1, append: boolean = false) => {
+  if (!append) {
     setLoading(true);
-    setError(null);
+    setChatLogs([]);
+    setFilteredLogs([]);
+    setPage(1);
+    setHasMore(true);
+  }
 
-    try {
-      const response = await fetch(`${API_BASE}/history/all/`, {
-        method: 'GET',
-        headers: {
-          'Authorization': AUTH_TOKEN,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE}/history/all/?page=${pageNum}&page_size=${PAGE_SIZE}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': AUTH_TOKEN,
+        'Content-Type': 'application/json'
       }
+    });
 
-      const data: ConversationLog[] = await response.json();
-      
-      // Flatten and enrich the nested data
-      const flattenedLogs: EnrichedQueryLog[] = data.flatMap(conversation => {
-        const { id: conversation_id, user } = conversation;
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-        return (conversation.query_logs || []).map((queryLog, index) => ({
-          ...queryLog,
-          id: `${conversation_id}-${queryLog.timestamp}-${index}`, 
-          conversation_id,
-          user_id: user.id,
-          username: user.username,
-          tokens_used: queryLog.tokens_used,
-          tokens: queryLog.tokens_used,
-          duration: calculateDuration(queryLog.timestamp),
-          firstQuery: (queryLog.prompt || '').substring(0, 80) + ((queryLog.prompt || '').length > 80 ? '...' : ''),
-        }));
-      });
+    const data: ConversationLog[] = await response.json();
 
-      setChatLogs(flattenedLogs);
-      setFilteredLogs(flattenedLogs);
-      calculateAnalytics(flattenedLogs);
+    const flattenedLogs: EnrichedQueryLog[] = data.flatMap(conversation => {
+      const { id: conversation_id, user } = conversation;
+      return (conversation.query_logs || []).map((queryLog, index) => ({
+        ...queryLog,
+        id: `${conversation_id}-${queryLog.timestamp}-${index}`,
+        conversation_id,
+        user_id: user.id,
+        username: user.username,
+        tokens_used: queryLog.tokens_used,
+        tokens: queryLog.tokens_used,
+        duration: calculateDuration(queryLog.timestamp),
+        firstQuery: (queryLog.prompt || '').substring(0, 80) + ((queryLog.prompt || '').length > 80 ? '...' : ''),
+      }));
+    });
 
-      // Reset ALL filters on refresh
-      setSearchTerm('');
-      setDateFilter('all');
-      setUserFilter('all');
-      setSessionFilter('');
-      setUserColumnFilter('');
-      setTimestampFilter('');
-      setDurationFilter('');
-      setTokenMinFilter('');
-      setTokenMaxFilter('');
-      setQueryFilter('');
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch chat history');
-      console.error('Error fetching chat history:', err);
-    } finally {
-      setLoading(false);
+    // Only update once using functional updates
+    setChatLogs(prev => {
+      const newLogs = append ? [...prev, ...flattenedLogs] : flattenedLogs;
+      calculateAnalytics(newLogs);
+      return newLogs;
+    });
+
+    setFilteredLogs(prev => {
+      return append ? [...prev, ...flattenedLogs] : flattenedLogs;
+    });
+
+    // Stop loading more when we get less than a full page
+    if (data.length < PAGE_SIZE) {
+      setHasMore(false);
     }
-  }, [calculateAnalytics]);
 
-  useEffect(() => {
-    fetchChatHistory();
-  }, [fetchChatHistory]);
+  } catch (err: any) {
+    setError(err.message || 'Failed to fetch chat history');
+    setHasMore(false);
+  } finally {
+    if (!append) setLoading(false);
+  }
+}, [calculateAnalytics]);
+
+useEffect(() => {
+  fetchChatHistory(1, false);
+}, []);
+
+useEffect(() => {
+  if (page > 1) {
+    fetchChatHistory(page, true);
+  }
+}, [page]);
 
   // Filter logs based on search and all filters
   useEffect(() => {
@@ -425,7 +443,7 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
               <p className="text-sm text-gray-500 mt-1">Monitor chatbot usage and performance metrics</p>
             </div>
             <button 
-              onClick={fetchChatHistory}
+              onClick={() => fetchChatHistory(1, false)}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -556,7 +574,14 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-gray-600 font-medium">Avg Response Time</p>
-                    <p className="text-3xl font-bold text-gray-900 mt-2">{analytics.avgResponseTime}s</p>
+                    <p className="text-3xl font-bold text-gray-900 mt-2">
+  {analytics.avgResponseTime === 0 
+    ? 'N/A' 
+    : analytics.avgResponseTime < 1
+      ? `${(analytics.avgResponseTime * 1000).toFixed(0)}ms`
+      : `${analytics.avgResponseTime.toFixed(2)}s`
+  }
+</p>
                     <p className="text-xs text-gray-500 mt-2">Estimated average</p>
                   </div>
                   <div className="p-3 bg-indigo-50 rounded-xl">
@@ -815,6 +840,43 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
                     ))}
                   </tbody>
                 </table>
+                <div className="py-8">
+  {loading && page > 1 && (
+    <div className="text-center">
+      <RefreshCw className="mx-auto text-blue-500 animate-spin" size={32} />
+      <p className="text-gray-500 mt-2">Loading more logs...</p>
+    </div>
+  )}
+
+  {!hasMore && filteredLogs.length > 0 && (
+    <p className="text-center text-gray-500 text-sm">No more logs to load</p>
+  )}
+
+ {/* Infinite Scroll Trigger */}
+<div
+  ref={(node) => {
+    if (!node) return;
+
+    // Cleanup previous observer if exists
+    if ((node as any)._observer) {
+      (node as any)._observer.disconnect();
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasMore && !loading) {
+          setPage(prev => prev + 1);
+        }
+      },
+      { threshold: 0.1, rootMargin: '200px' }
+    );
+
+    observer.observe(node);
+    (node as any)._observer = observer; // store for cleanup
+  }}
+  className="h-10"
+/>
+</div>
               </div>
               
               {filteredLogs.length === 0 && !loading && (
