@@ -110,6 +110,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
   // Replace your existing processTokenTrend function with this one
 const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage[] => {
   const dataMap = new Map<string, { tokens: number; queries: number }>();
+  const now = new Date();
 
   conversations.forEach((conv: any) => {
     (conv.query_logs || []).forEach((q: any) => {
@@ -121,15 +122,25 @@ const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage
       let label: string;
 
       if (range === 'today') {
-        // Group by hour (0-23)
-        key = date.getHours().toString();
-        // Pretty hour label: 9 AM, 12 PM, etc.
+        // Only include past and current hour
+        const hour = date.getHours();
+        const isFutureHour = date.getFullYear() === now.getFullYear() &&
+                            date.getMonth() === now.getMonth() &&
+                            date.getDate() === now.getDate() &&
+                            hour > now.getHours();
+
+        // Skip future hours entirely
+        if (isFutureHour) return;
+
+        key = hour.toString().padStart(2, '0');
         label = date.toLocaleTimeString('en-US', {
           hour: 'numeric',
           hour12: true,
-        }).replace(':00', ''); // removes :00 → "9 AM" instead of "9:00 AM"
-      } else if (range === '7d' || range === '30d') {
-        key = date.toISOString().slice(0, 10); // YYYY-MM-DD
+        }).replace(':00', '');
+      }
+      // ... rest of your existing logic for 7d/30d/6m/1y remains unchanged
+      else if (range === '7d' || range === '30d') {
+        key = date.toISOString().slice(0, 10);
         label = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       } else if (range === '6m' || range === '1y') {
         key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -149,30 +160,52 @@ const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage
     });
   });
 
-  // Sort by key (for today: 0-23, for dates: chronological)
-  const sortedEntries = Array.from(dataMap.entries())
-    .sort(([a], [b]) => {
-      if (range === 'today') {
-        return parseInt(a) - parseInt(b); // sort hours 0 → 23
-      }
-      return a.localeCompare(b);
-    })
-    .map(([key, value]) => ({
-      date: key,
-      tokens: Math.round(value.tokens),
-      queries: value.queries,
-      // label is already set above
-      label: range === 'today'
-        ? new Date(0, 0, 0, parseInt(key)).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            hour12: true,
-          }).replace(':00', '')
-        : new Date(key + (range === '6m' || range === '1y' ? '-01' : '')).toLocaleDateString('en-US', {
-            month: range === '6m' || range === '1y' ? 'short' : 'short',
-            day: range !== '6m' && range !== '1y' ? 'numeric' : undefined,
-            year: range === '1y' ? 'numeric' : undefined,
-          }),
-    }));
+  // Generate sorted entries — but for "today", only up to current hour
+  const sortedEntries: DailyTokenUsage[] = [];
+
+  if (range === 'today') {
+    const today = new Date();
+    const currentHour = today.getHours();
+
+    for (let h = 0; h <= currentHour; h++) {
+      const key = h.toString().padStart(2, '0');
+      const value = dataMap.get(key) || { tokens: 0, queries: 0 };
+      const hourLabel = new Date(0, 0, 0, h).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        hour12: true,
+      }).replace(':00', '');
+
+      sortedEntries.push({
+        date: key,
+        label: hourLabel,
+        tokens: Math.round(value.tokens),
+        queries: value.queries,
+      });
+    }
+  } else {
+    // Existing sorting logic for other ranges
+    const sorted = Array.from(dataMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => {
+        let label = key;
+        if (range === '7d' || range === '30d') {
+          label = new Date(key).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else if (range === '6m' || range === '1y') {
+          const [y, m] = key.split('-');
+          label = new Date(parseInt(y), parseInt(m) - 1).toLocaleString('en-US', {
+            month: 'short',
+            year: 'numeric',
+          });
+        }
+        return {
+          date: key,
+          label,
+          tokens: Math.round(value.tokens),
+          queries: value.queries,
+        };
+      });
+    sortedEntries.push(...sorted);
+  }
 
   return sortedEntries;
 };
