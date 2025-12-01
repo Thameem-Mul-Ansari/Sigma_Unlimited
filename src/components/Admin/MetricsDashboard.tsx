@@ -79,32 +79,51 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ logic }) => 
   const isFirstLoad = useRef(true);
 
   // Helper: Calculate avg conversation duration (same logic as calculateAnalytics in ChatLogsTab)
-  const calculateAvgConversationDuration = (conversations: any[]): string => {
-    if (!conversations || conversations.length === 0) return '0m 0s';
+  // === SMART AVERAGE CONVERSATION DURATION (30-min inactivity = new session) ===
+const calculateAvgConversationDuration = (conversations: any[]): string => {
+  if (!conversations || conversations.length === 0) return '0m 0s';
 
-    const conversationMap = new Map<number, any[]>();
-    conversations.forEach(conv => {
-      const queries = conv.query_logs || [];
-      if (queries.length < 2) return; // Skip single-message chats
-      conversationMap.set(conv.id, queries);
-    });
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const sessionDurations: number[] = []; // in seconds
 
-    const durations: number[] = [];
-    conversationMap.forEach(queries => {
-      queries.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      const first = new Date(queries[0].timestamp).getTime();
-      const last = new Date(queries[queries.length - 1].timestamp).getTime();
+  conversations.forEach((conv: any) => {
+    const logs = (conv.query_logs || [])
+      .map((q: any) => ({ ...q, time: new Date(q.timestamp).getTime() }))
+      .filter((q: any) => !isNaN(q.time))
+      .sort((a: any, b: any) => a.time - b.time);
 
-      if (!isNaN(first) && !isNaN(last) && last >= first) {
-        durations.push(Math.floor((last - first) / 1000)); // seconds
+    if (logs.length === 0) return;
+
+    let currentSessionStart = logs[0].time;
+    let lastTime = logs[0].time;
+
+    for (let i = 1; i < logs.length; i++) {
+      const currentTime = logs[i].time;
+      const gap = currentTime - lastTime;
+
+      if (gap > THIRTY_MINUTES_MS) {
+        // End current session
+        const durationSec = Math.floor((lastTime - currentSessionStart) / 1000);
+        if (durationSec > 0) sessionDurations.push(durationSec);
+        // Start new session
+        currentSessionStart = currentTime;
       }
-    });
+      lastTime = currentTime;
+    }
 
-    const avgDurationSec = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
-    const mins = Math.floor(avgDurationSec / 60);
-    const secs = Math.floor(avgDurationSec % 60);
-    return `${mins}m ${secs}s`;
-  };
+    // Don't forget the last session
+    const finalDurationSec = Math.floor((lastTime - currentSessionStart) / 1000);
+    if (finalDurationSec > 0) sessionDurations.push(finalDurationSec);
+  });
+
+  if (sessionDurations.length === 0) return '0m 0s';
+
+  const avgSeconds = sessionDurations.reduce((a, b) => a + b, 0) / sessionDurations.length;
+  const mins = Math.floor(avgSeconds / 60);
+  const secs = Math.floor(avgSeconds % 60);
+
+  return `${mins}m ${secs}s`;
+};
 
   // Process token usage by time range (unchanged)
   // Replace your existing processTokenTrend function with this one
@@ -261,16 +280,56 @@ const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage
         return tokens.toString();
       };
 
+      // === COUNT REAL SESSIONS (30-min inactivity = new session) ===
+      const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+      let totalRealSessions = 0;
+
+      conversations.forEach((conv: any) => {
+        const logs = (conv.query_logs || [])
+          .map((q: any) => ({ time: new Date(q.timestamp).getTime() }))
+          .filter((q: any) => !isNaN(q.time))
+          .sort((a: any, b: any) => a.time - b.time);
+
+        if (logs.length === 0) return;
+
+        totalRealSessions += 1; // at least one session
+
+        for (let i = 1; i < logs.length; i++) {
+          if (logs[i].time - logs[i - 1].time > THIRTY_MINUTES_MS) {
+            totalRealSessions += 1; // new session started
+          }
+        }
+      });
+
+      // === NOW BUILD METRICS WITH CORRECT VALUES ===
       const metrics: SystemMetric[] = [
-        { title: 'Total Tokens Used (All Time)', value: formatTokens(totalTokens), unit: 'tokens', color: 'text-blue-600', icon: Activity },
+        { 
+          title: 'Total Tokens Used (All Time)', 
+          value: formatTokens(totalTokens), 
+          unit: 'tokens', 
+          color: 'text-blue-600', 
+          icon: Activity 
+        },
         {
-  title: 'Average Response Time',
-  value: validLatencies.length === 0 ? 'N/A' : displayLatency,
-  unit: undefined,
-  color: 'text-purple-600',
-  icon: MessageSquare
-},{ title: 'Total Conversations', value: conversations.length.toString(), unit: 'sessions', color: 'text-green-600', icon: Upload },
-        { title: 'Avg Conversation Duration', value: avgConversationDuration, /* no unit */ color: 'text-teal-600', icon: Clock } // NEW: Replaced uptime
+          title: 'Average Response Time',
+          value: validLatencies.length === 0 ? 'N/A' : displayLatency,
+          unit: undefined,
+          color: 'text-purple-600',
+          icon: Zap
+        },
+        { 
+          title: 'Total Sessions', 
+          value: totalRealSessions.toString(), 
+          unit: 'active', 
+          color: 'text-green-600', 
+          icon: MessageSquare 
+        },
+        { 
+          title: 'Avg Conversation Duration', 
+          value: avgConversationDuration, 
+          color: 'text-teal-600', 
+          icon: Clock 
+        }
       ];
 
       setRealMetrics(metrics);
