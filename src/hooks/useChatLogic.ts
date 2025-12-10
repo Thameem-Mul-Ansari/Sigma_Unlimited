@@ -170,7 +170,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [backendConfig, setBackendConfig] = useState<BackendConfig>({
-    backendUrl: 'https://gx5cdmd5-8000.inc1.devtunnels.ms',
+    backendUrl: 'https://h43mkhn4-8000.inc1.devtunnels.ms',
     authToken: authToken,
   });
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -185,7 +185,6 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const hasLoadedHistory = useRef(false);
   const previousChatId = useRef(currentChatId);
 
   // Derived values
@@ -413,21 +412,38 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
       const frontendChats = mapBackendChatsToFrontend(backendHistory);
       frontendChats.sort((a, b) => parseInt(b.id) - parseInt(a.id));
 
-      setChats(prevChats => {
-        const tempChat = prevChats.find(c => c.id.startsWith('temp-')) || createInitialChat(t, initialChatId);
-        const mergedChats = [tempChat, ...frontendChats.filter(chat => !chat.id.startsWith('temp-'))];
+setChats(() => {
+  // Always create a fresh temp chat
+  const tempChat = createInitialChat(t, initialChatId);
 
-        const savedId = localStorage.getItem('activeChatId');
-        if (savedId && !savedId.startsWith('temp-')) {
-          const exists = mergedChats.some(c => c.id === savedId);
-          if (!exists && frontendChats.length > 0) {
-            localStorage.removeItem('activeChatId');
-            setCurrentChatId(initialChatId);
-          }
-        }
-        
-        return mergedChats;
-      });
+  // Only keep real saved chats from backend
+  const realChats = frontendChats.filter(chat => !chat.id.startsWith('temp-'));
+
+  // Decide which chat should be active
+  let activeIdToSet = initialChatId;
+  const savedActiveId = localStorage.getItem('activeChatId');
+
+  if (savedActiveId && !savedActiveId.startsWith('temp-')) {
+    if (realChats.some(c => c.id === savedActiveId)) {
+      activeIdToSet = savedActiveId;
+    } else {
+      localStorage.removeItem('activeChatId'); // Invalid saved ID
+    }
+  }
+
+  // If no valid saved chat, open the most recent real chat
+  if (activeIdToSet === initialChatId && realChats.length > 0) {
+    const latestChat = realChats.sort((a, b) => parseInt(b.id) - parseInt(a.id))[0];
+    activeIdToSet = latestChat.id;
+    localStorage.setItem('activeChatId', activeIdToSet);
+  }
+
+  // Actually set the active chat
+  setCurrentChatId(activeIdToSet);
+
+  // Return: temp chat on top + all real chats
+  return [tempChat, ...realChats];
+});
 
     } catch (error) {
       console.error('Error loading chat history:', error);
@@ -468,7 +484,7 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
             },
             body: JSON.stringify({
               prompt: ".",
-              conversation_id: null
+              conversation_id: null,
             })
           });
 
@@ -508,13 +524,14 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
         await uploadResponse.json(); // Process response if needed
         console.log('✅ Files uploaded successfully');
       }
-
+      const trinityAuth = localStorage.getItem('trinityAuth') || 'AuthTokenMissing Maybe He is user';
       // --- STEP 2: CHAT (RAG) ---
       const chatEndpoint = `${backendConfig.backendUrl}/api/rag/`;
       
       const payload: any = {
         prompt: userPrompt.trim() || 'Hello',
-        conversation_id: conversationIdForRequest
+        conversation_id: conversationIdForRequest,
+        trinity_auth: trinityAuth
       };
 
       console.log('💬 Sending chat to conversation:', payload.conversation_id);
@@ -733,17 +750,18 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
     setBackendConfig(prev => ({ ...prev, authToken: authToken }));
   }, [authToken]);
 
-  useEffect(() => {
-    if (authToken && !hasLoadedHistory.current) {
-      loadChatHistory(authToken);
-      hasLoadedHistory.current = true;
-    } else if (!authToken) {
-      setChats([createInitialChat(t, initialChatId)]);
-      setCurrentChatId(initialChatId);
-      setMessages([]);
-      hasLoadedHistory.current = false;
-    }
-  }, [authToken, loadChatHistory, t]);
+// Load chat history EVERY time user logs in (no hasLoadedHistory flag)
+useEffect(() => {
+  if (authToken) {
+    loadChatHistory(authToken);
+  } else {
+    // User logged out
+    setChats([createInitialChat(t, initialChatId)]);
+    setCurrentChatId(initialChatId);
+    setMessages([]);
+    localStorage.removeItem('activeChatId'); // Clear stale active chat
+  }
+}, [authToken, loadChatHistory, t]);
 
   useEffect(() => {
     if (previousChatId.current !== currentChatId) {
