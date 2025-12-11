@@ -181,10 +181,20 @@ const loginAsEmployee = useCallback(async (username: string, password: string) =
 
     const json = await response.json();
 
-    if (json.success !== true || !json.trinityAuth) {
-      throw new Error('Invalid employee credentials');
-    }
+if (!json.success) {
+  throw new Error('Login failed completely');
+}
 
+if (json.trinitySuccess) {
+  localStorage.setItem('trinityAuth', json.trinityAuth);
+}
+
+if (json.lmsSuccess) {
+  localStorage.setItem('LMS_JWT_Token', json.LMStoken);
+  if (json.LMSdata) {
+    localStorage.setItem('LMSdata', JSON.stringify(json.LMSdata));
+  }
+}
    const fullAuthCookie = json.trinityAuth || '';
 
     if (!fullAuthCookie) {
@@ -230,10 +240,10 @@ const employeeData: UserData = {
 };
 
 // Save everything
-localStorage.setItem('userData2', JSON.stringify(employeeData));
 localStorage.setItem('trinityAuth', fullAuthCookie);
 localStorage.setItem('authToken', djangoToken);  // Ensure it's saved
 localStorage.setItem('userData', JSON.stringify(employeeData));
+
 
 setAuthState({
   authToken: djangoToken,
@@ -260,8 +270,10 @@ return true;
     localStorage.removeItem('userData');
     localStorage.removeItem('userData2');
     localStorage.removeItem('trinityAuth');
+    localStorage.removeItem('LMS_JWT_Token');
     localStorage.removeItem('trinityLoginCookie');
     localStorage.removeItem('activeChatId');
+    localStorage.removeItem('LMSdata');
     setAuthState({
       authToken: null,
       isAuthenticated: false,

@@ -525,13 +525,24 @@ setChats(() => {
         console.log('✅ Files uploaded successfully');
       }
       const trinityAuth = localStorage.getItem('trinityAuth') || 'AuthTokenMissing Maybe He is user';
+      const LMS_JWT_Token = localStorage.getItem('LMS_JWT_Token') || 'LMS_JWT_Token_Missing';
+      const LMSdataStr = localStorage.getItem('LMSdata');
+
+// Step 2: Parse the JSON string into a JavaScript object
+// (Add error handling in production code)
+const LMSdata = JSON.parse(LMSdataStr || '{}');
+
+// Step 3: Access strEmpID (it's nested under data[0])
+const strEmpID = LMSdata.data[0].strEmpID;
       // --- STEP 2: CHAT (RAG) ---
       const chatEndpoint = `${backendConfig.backendUrl}/api/rag/`;
       
       const payload: any = {
         prompt: userPrompt.trim() || 'Hello',
         conversation_id: conversationIdForRequest,
-        trinity_auth: trinityAuth
+        trinity_auth: trinityAuth,
+        strEmpID: strEmpID,
+        lms_jwt_token: LMS_JWT_Token
       };
 
       console.log('💬 Sending chat to conversation:', payload.conversation_id);
