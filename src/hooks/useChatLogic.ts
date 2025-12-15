@@ -536,7 +536,8 @@ const LMSdata = JSON.parse(LMSdataStr || '{}');
 const strEmpID = LMSdata.data[0].strEmpID;
       // --- STEP 2: CHAT (RAG) ---
       const chatEndpoint = `${backendConfig.backendUrl}/api/rag/`;
-      
+      console.log('LMS_JWT_Token:', LMS_JWT_Token);
+      console.log('strEmpID:', strEmpID);
       const payload: any = {
         prompt: userPrompt.trim() || 'Hello',
         conversation_id: conversationIdForRequest,
@@ -548,7 +549,9 @@ const strEmpID = LMSdata.data[0].strEmpID;
       console.log('💬 Sending chat to conversation:', payload.conversation_id);
 
       const chatResponse = await fetch(chatEndpoint, {
+        
         method: 'POST',
+        credentials: "include",
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token,
