@@ -2,8 +2,8 @@
 
 import { useState, useCallback } from 'react';
 
-const SIGNUP_URL = 'https://h43mkhn4-8000.inc1.devtunnels.ms/api/signup/';
-const LOGIN_URL = 'https://h43mkhn4-8000.inc1.devtunnels.ms/api/login/';
+const SIGNUP_URL = 'https://sritharoon-sigma-llm.hf.space/api/signup/';
+const LOGIN_URL = 'https://sritharoon-sigma-llm.hf.space/api/login/';
 const EMPLOYEE_LOGIN_URL = 'https://nextjs-boilerplate-git-main-princebhowras-projects.vercel.app/api/login';
 
 export interface UserData {
