@@ -57,7 +57,7 @@ interface SessionRow extends EnrichedQueryLog {
 }
 
 const API_BASE = 'https://sritharoon-sigma-llm.hf.space/api';
-const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
+const AUTH_TOKEN = localStorage.getItem('authToken');
 const COST_PER_TOKEN = 0.00002;
 
 const formatTimestamp = (timestamp: string | undefined): string => {
@@ -258,7 +258,7 @@ const ChatLogsTab: React.FC<ChatLogsTabProps> = ({ logic }) => {
       const response = await fetch(`${API_BASE}/history/all/`, {
         method: 'GET',
         headers: {
-          'Authorization': AUTH_TOKEN,
+          'Authorization': AUTH_TOKEN || '',
           'Content-Type': 'application/json'
         }
       });

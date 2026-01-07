@@ -32,7 +32,7 @@ interface DailyTokenUsage {
 }
 
 const API_BASE = 'https://sritharoon-sigma-llm.hf.space/api';
-const AUTH_TOKEN = 'Token 19065757542afc134cb7c3c4b0cbe395e66c1c0a';
+const AUTH_TOKEN = localStorage.getItem('authToken');
 
 const MetricCard: React.FC<SystemMetric> = ({ title, value, unit, color, icon: Icon }) => (
   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 group">
@@ -236,7 +236,7 @@ const processTokenTrend = (conversations: any[], range: string): DailyTokenUsage
     try {
       const response = await fetch(`${API_BASE}/history/all/`, {
         headers: {
-          'Authorization': AUTH_TOKEN,
+          'Authorization': AUTH_TOKEN || '',
           'Content-Type': 'application/json'
         }
       });
