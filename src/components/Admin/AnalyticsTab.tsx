@@ -12,7 +12,7 @@ import {
 import { Activity, Clock, Zap } from 'lucide-react';
 import axios from 'axios';
 
-const API_BASE = "https://gx5cdmd5-8000.inc1.devtunnels.ms/api";
+const API_BASE = "https://sritharoon-sigma-llm.hf.space/api";
 const AUTH_TOKEN = "19065757542afc134cb7c3c4b0cbe395e66c1c0a";
 
 export const AnalyticsTab: React.FC = () => {
