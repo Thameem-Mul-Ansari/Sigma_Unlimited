@@ -170,7 +170,8 @@ export function useChatLogic(authToken: string | null, userData: UserData | null
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [backendConfig, setBackendConfig] = useState<BackendConfig>({
-    backendUrl: 'https://sritharoon-sigma-llm.hf.space',
+    backendUrl: 'https://sritharoonhf-sigma-llm.hf.space',
+    //backendUrl: 'http://localhost:8000',
     authToken: authToken,
   });
   const [isConfigOpen, setIsConfigOpen] = useState(false);

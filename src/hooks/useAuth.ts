@@ -1,9 +1,10 @@
 // src/hooks/useAuth.ts ← FINAL VERSION — WORKS 100%
 
 import { useState, useCallback } from 'react';
-
-const SIGNUP_URL = 'https://sritharoon-sigma-llm.hf.space/api/signup/';
-const LOGIN_URL = 'https://sritharoon-sigma-llm.hf.space/api/login/';
+const SIGNUP_URL = 'https://sritharoonhf-sigma-llm.hf.space/api/signup/';
+//const SIGNUP_URL = 'http://localhost:8000/api/signup/';
+const LOGIN_URL = 'https://sritharoonhf-sigma-llm.hf.space/api/login/';
+// const LOGIN_URL = 'http://localhost:8000/api/login/';
 const EMPLOYEE_LOGIN_URL = 'https://nextjs-boilerplate-git-main-princebhowras-projects.vercel.app/api/login';
 
 export interface UserData {

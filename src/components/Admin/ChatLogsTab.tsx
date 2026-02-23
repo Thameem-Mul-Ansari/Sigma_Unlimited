@@ -56,7 +56,7 @@ interface SessionRow extends EnrichedQueryLog {
   endTime: string;
 }
 
-const API_BASE = 'https://sritharoon-sigma-llm.hf.space/api';
+const API_BASE = 'https://sritharoonhf-sigma-llm.hf.space/api';
 const AUTH_TOKEN = localStorage.getItem('authToken');
 const COST_PER_TOKEN = 0.00002;
 

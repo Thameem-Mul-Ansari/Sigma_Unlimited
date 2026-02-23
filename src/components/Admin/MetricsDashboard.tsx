@@ -31,7 +31,7 @@ interface DailyTokenUsage {
   queries: number;
 }
 
-const API_BASE = 'https://sritharoon-sigma-llm.hf.space/api';
+const API_BASE = 'https://sritharoonhf-sigma-llm.hf.space/api';
 const AUTH_TOKEN = localStorage.getItem('authToken');
 
 const MetricCard: React.FC<SystemMetric> = ({ title, value, unit, color, icon: Icon }) => (
