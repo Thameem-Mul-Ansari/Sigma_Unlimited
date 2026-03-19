@@ -534,7 +534,7 @@ setChats(() => {
 const LMSdata = JSON.parse(LMSdataStr || '{}');
 
 // Step 3: Access strEmpID (it's nested under data[0])
-const strEmpID = LMSdata.data[0].strEmpID;
+const strEmpID = LMSdata?.data?.[0]?.strEmpID || '';
       // --- STEP 2: CHAT (RAG) ---
       const chatEndpoint = `${backendConfig.backendUrl}/api/rag/`;
       console.log('LMS_JWT_Token:', LMS_JWT_Token);
